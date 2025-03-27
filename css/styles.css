@@ -1,0 +1,356 @@
+:root {
+  --primary-color: #4a6fa5;
+  --secondary-color: #166088;
+  --accent-color: #47b8e0;
+  --text-color: #333;
+  --background-color: #f5f5f5;
+  --card-background: #fff;
+  --border-color: #ddd;
+  --success-color: #4caf50;
+  --error-color: #f44336;
+  --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] {
+  --primary-color: #5c88c5;
+  --secondary-color: #247ba0;
+  --accent-color: #50c2e8;
+  --text-color: #f5f5f5;
+  --background-color: #222;
+  --card-background: #333;
+  --border-color: #444;
+  --shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Roboto', sans-serif;
+  background-color: var(--background-color);
+  color: var(--text-color);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.container {
+  width: 350px;
+  padding: 20px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+h1 {
+  font-size: 24px;
+  color: var(--primary-color);
+}
+
+/* Toggle Switch */
+.theme-toggle {
+  position: relative;
+}
+
+.toggle {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle + label {
+  display: inline-block;
+  width: 50px;
+  height: 24px;
+  background-color: var(--border-color);
+  border-radius: 24px;
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.toggle + label::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--card-background);
+  top: 2px;
+  left: 2px;
+  transition: transform 0.3s;
+}
+
+.toggle:checked + label {
+  background-color: var(--primary-color);
+}
+
+.toggle:checked + label::after {
+  transform: translateX(26px);
+}
+
+/* Timer */
+.timer-container {
+  background-color: var(--card-background);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+}
+
+.timer-display {
+  font-size: 48px;
+  text-align: center;
+  margin-bottom: 20px;
+  font-weight: bold;
+  color: var(--primary-color);
+}
+
+.timer-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 4px;
+  background-color: var(--primary-color);
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.btn:hover {
+  background-color: var(--secondary-color);
+}
+
+.btn:disabled {
+  background-color: var(--border-color);
+  cursor: not-allowed;
+}
+
+/* Settings */
+.settings {
+  background-color: var(--card-background);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.time-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.setting-item label {
+  font-weight: 500;
+}
+
+.setting-item input {
+  width: 70px;
+  padding: 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  text-align: center;
+  background-color: var(--card-background);
+  color: var(--text-color);
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: var(--card-background);
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 450px;
+  width: 100%;
+  text-align: center;
+}
+
+.modal h2 {
+  margin-bottom: 10px;
+  color: var(--primary-color);
+}
+
+.modal p {
+  margin-bottom: 15px;
+}
+
+/* 원형 진행 바 스타일 */
+.smile-progress-container {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  margin: 0 auto;
+}
+
+/* SVG 원형 진행 표시기 */
+.circular-progress {
+  position: absolute;
+  top: -15px;
+  left: -15px;
+  width: calc(100% + 30px);
+  height: calc(100% + 30px);
+  z-index: 1;
+}
+
+.progress-circle-bg {
+  fill: none;
+  stroke: rgba(200, 200, 200, 0.3);
+  stroke-width: 10;
+}
+
+.progress-circle {
+  fill: none;
+  stroke: var(--success-color);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-dasharray: 314.16; /* 2 * π * 50 (반지름) */
+  stroke-dashoffset: 314.16; /* 처음에는 0% 진행 */
+  transition: stroke-dashoffset 0.1s;
+  filter: drop-shadow(0 0 4px rgba(76, 175, 80, 0.6));
+}
+
+/* 비디오 컨테이너를 원형으로 변경 */
+.video-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  z-index: 2;
+  border: 2px solid var(--border-color);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+}
+
+/* 캔버스 텍스트를 위한 스타일 */
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 3; /* 비디오 위에 표시되도록 z-index 설정 */
+}
+
+video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hidden {
+  display: none;
+}
+
+/* 클리어 효과 애니메이션 */
+@keyframes clearEffect {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+  }
+  30% {
+    transform: scale(1.05);
+    filter: brightness(1.3);
+    box-shadow: 0 0 20px rgba(255, 235, 59, 0.8);
+  }
+  70% {
+    transform: scale(1.1);
+    filter: brightness(1.2);
+    box-shadow: 0 0 25px rgba(76, 175, 80, 0.8);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+  }
+}
+
+.clear-animation {
+  animation: clearEffect 1.5s ease-in-out;
+}
+
+@keyframes flashProgressBar {
+  0% { 
+    stroke: var(--success-color);
+    stroke-width: 10;
+  }
+  50% { 
+    stroke: #ffeb3b;
+    stroke-width: 15;
+  }
+  100% { 
+    stroke: var(--success-color);
+    stroke-width: 10;
+  }
+}
+
+.progress-flash {
+  animation: flashProgressBar 0.8s ease-in-out infinite;
+}
+
+/* Permission section */
+.permission-section {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border-color);
+}
+
+.permission-btn {
+  width: 100%;
+  margin-bottom: 8px;
+  background-color: #2196f3;
+}
+
+.permission-btn:hover {
+  background-color: #0d8aee;
+}
+
+.permission-btn.granted {
+  background-color: var(--success-color);
+  cursor: default;
+}
+
+.status-text {
+  font-size: 12px;
+  text-align: center;
+  margin-top: 5px;
+  color: var(--text-color);
+  font-style: italic;
+} 

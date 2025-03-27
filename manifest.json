@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Smile Pomodoro",
+  "version": "1.0",
+  "description": "A Pomodoro timer that requires you to smile to dismiss notifications",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "images/icon.png"
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "notifications",
+    "storage",
+    "alarms",
+    "activeTab"
+  ],
+  "icons": {
+    "128": "images/icon.png"
+  }
+} 

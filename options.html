@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smile Pomodoro - Options</title>
+  <style>
+    body {
+      font-family: 'Roboto', Arial, sans-serif;
+      margin: 20px;
+      padding: 0;
+      background-color: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      color: #4285f4;
+      margin-top: 0;
+    }
+    .section {
+      margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #eee;
+    }
+    button {
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #3367d6;
+    }
+    button.success {
+      background-color: #0f9d58;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+      background-color: #f1f1f1;
+    }
+    .success-message {
+      color: #0f9d58;
+      font-weight: bold;
+    }
+    .error-message {
+      color: #d23f31;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Smile Pomodoro Options</h1>
+    
+    <div class="section">
+      <h2>Camera Permission</h2>
+      <p>In order to use the smile detection feature, you need to grant camera access permission.</p>
+      <button id="requestPermission">Request Camera Permission</button>
+      <div id="permissionStatus" class="status">
+        Camera permission status will appear here.
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>About</h2>
+      <p>Smile Pomodoro is a productivity timer that requires you to smile to dismiss notifications, helping you stay positive while managing your work.</p>
+    </div>
+  </div>
+  
+  <script src="options.js"></script>
+</body>
+</html> 
