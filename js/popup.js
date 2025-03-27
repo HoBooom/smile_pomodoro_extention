@@ -591,6 +591,7 @@ const onVideoPlay = () => {
               // 얼굴 인식 종료 로직을 실행하되, 타이머는 시작하지 않음
               setTimeout(() => {
                 dismissSmileDetection(video.srcObject);
+                resetTimer();
               }, 1500);
             }
           }
