@@ -57,9 +57,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'getTimerState':
       // 실행 중인 타이머의 현재 상태 계산
-      if (timerState.isRunning && timerState.startTime) {
-        const elapsedSeconds = Math.floor((Date.now() - timerState.startTime) / 1000);
-        timerState.totalSeconds = Math.max(timerState.endTime - Math.floor(Date.now() / 1000), 0);
+      if (timerState.isRunning && timerState.startTime && timerState.endTime) {
+        // 현재 남은 시간을 정확하게 계산
+        const currentTime = Math.floor(Date.now() / 1000);
+        timerState.totalSeconds = Math.max(timerState.endTime - currentTime, 0);
       }
       sendResponse({ status: 'success', timerState });
       break;
@@ -78,14 +79,15 @@ function startTimer() {
   
   console.log('Starting timer for', timerState.totalSeconds, 'seconds');
   
-  // 현재 시간 설정
-  timerState.startTime = Date.now();
-  timerState.endTime = Math.floor(Date.now() / 1000) + timerState.totalSeconds;
+  // 현재 시간 설정 - 정확한 타이밍을 위해 밀리초 단위 타임스탬프 사용
+  const now = Date.now();
+  timerState.startTime = now;
+  timerState.endTime = Math.floor(now / 1000) + timerState.totalSeconds;
   timerState.isRunning = true;
   
-  // 알람 설정
+  // 알람 설정 - 정확한 종료 시간 설정
   chrome.alarms.create(POMODORO_ALARM, {
-    when: Date.now() + (timerState.totalSeconds * 1000)
+    when: now + (timerState.totalSeconds * 1000)
   });
   
   // 팝업에게 타이머 상태 변경 알림
@@ -98,10 +100,10 @@ function pauseTimer() {
   
   console.log('Pausing timer');
   
-  // 남은 시간 계산
+  // 남은 시간 계산 - 정확한 계산을 위해 초 단위로 변환
   const now = Date.now();
-  const elapsedSeconds = Math.floor((now - timerState.startTime) / 1000);
-  timerState.totalSeconds = Math.max(timerState.totalSeconds - elapsedSeconds, 0);
+  const currentSeconds = Math.floor(now / 1000);
+  timerState.totalSeconds = Math.max(timerState.endTime - currentSeconds, 0);
   
   // 타이머 상태 업데이트
   timerState.isRunning = false;
@@ -148,6 +150,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     // 타이머 상태 업데이트
     timerState.isRunning = false;
     timerState.totalSeconds = 0;
+    timerState.startTime = null;
+    timerState.endTime = null;
     
     // 알림 표시
     chrome.notifications.create({
