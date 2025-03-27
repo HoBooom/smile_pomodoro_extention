@@ -1,113 +1,230 @@
-// 필요한 변수 정의
-const isExtension = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id;
-let totalSeconds = 0; // 타이머 초 단위 시간
-let timerRunning = false; // 타이머 실행 상태
-let timerInterval = null; // 타이머 인터벌 ID
-let faceDetectionInterval = null; // 얼굴 인식 인터벌
-let smileDetected = false; // 미소 감지 여부
-let smileDetectionStartTime = null; // 미소 감지 시작 시간
-let smileTimer = 0; // 미소 유지 시간 (초)
-const requiredSmileTime = 5; // 미소를 유지해야 하는 시간 (초)
+// DOM Elements
+const minutesElement = document.getElementById('minutes');
+const secondsElement = document.getElementById('seconds');
+const startButton = document.getElementById('start-btn');
+const pauseButton = document.getElementById('pause-btn');
+const resetButton = document.getElementById('reset-btn');
+const darkModeToggle = document.getElementById('dark-mode-toggle');
+const smileDetectionModal = document.getElementById('smile-detection-modal');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const smileProgressCircle = document.getElementById('smile-progress-circle');
+const requestCameraButton = document.getElementById('request-camera-btn');
+const cameraStatusText = document.getElementById('camera-status');
 
-// UI 요소들 참조
-let startButton;
-let pauseButton;
-let resetButton;
-let darkModeToggle;
-let minutesDisplay;
-let secondsDisplay;
+// Timer variables
+let timerInterval;
+let totalSeconds = 25 * 60; // Default 25 minutes
+let timerRunning = false;
+let smileDetected = false;
+let smileTimer = 0;
+let smileRequired = 5; // 5 seconds of smile required
+const circleCircumference = 314.16; // 2 * π * 50 (반지름)
 
-// 기본 설정값
+// Settings variables with defaults
 let settings = {
-  pomodoroTime: 25, // 기본 25분
+  pomodoroTime: 25,
   darkMode: false
 };
 
-// 타이머 표시 업데이트 함수
-const updateTimerDisplay = () => {
-  if (!minutesDisplay || !secondsDisplay) return;
+// Check if we're in a Chrome extension environment
+const isExtension = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id;
+
+// Camera permission state
+let cameraPermissionGranted = false;
+
+// Get stored settings or use defaults
+const loadSettings = () => {
+  if (isExtension) {
+    try {
+      chrome.storage.sync.get({
+        pomodoroTime: 25,
+        darkMode: false
+      }, (items) => {
+        settings = items;
+        applySettings();
+      });
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      applySettings();
+    }
+  } else {
+    // Use localStorage if not in a Chrome extension
+    try {
+      const savedSettings = localStorage.getItem('pomodoroSettings');
+      if (savedSettings) {
+        settings = JSON.parse(savedSettings);
+      }
+      applySettings();
+    } catch (error) {
+      console.error('Error loading from localStorage:', error);
+      applySettings();
+    }
+  }
+};
+
+// Apply loaded settings to UI
+const applySettings = () => {
+  document.getElementById('pomodoro-time').value = settings.pomodoroTime;
   
+  // Set dark mode
+  if (settings.darkMode) {
+    document.body.setAttribute('data-theme', 'dark');
+    darkModeToggle.checked = true;
+  } else {
+    document.body.removeAttribute('data-theme');
+    darkModeToggle.checked = false;
+  }
+
+  // Initialize timer with saved pomodoro time
+  totalSeconds = settings.pomodoroTime * 60;
+  updateTimerDisplay();
+};
+
+// Save settings
+const saveSettings = () => {
+  const pomodoroTime = parseInt(document.getElementById('pomodoro-time').value);
+  const darkMode = darkModeToggle.checked;
+
+  settings = {
+    pomodoroTime,
+    darkMode
+  };
+
+  if (isExtension) {
+    try {
+      chrome.storage.sync.set(settings);
+      
+      // 타이머가 실행 중이 아닌 경우에만 현재 타이머 시간 업데이트
+      if (!timerRunning) {
+        totalSeconds = pomodoroTime * 60;
+        updateTimerDisplay();
+        
+        // 백그라운드에도 알림
+        chrome.runtime.sendMessage({ 
+          action: 'resetTimer'
+        });
+      }
+    } catch (error) {
+      console.error('Error saving settings to chrome storage:', error);
+    }
+  } else {
+    // Use localStorage if not in a Chrome extension
+    try {
+      localStorage.setItem('pomodoroSettings', JSON.stringify(settings));
+      
+      // 타이머가 실행 중이 아닌 경우에만 현재 타이머 시간 업데이트
+      if (!timerRunning) {
+        totalSeconds = pomodoroTime * 60;
+        updateTimerDisplay();
+      }
+    } catch (error) {
+      console.error('Error saving to localStorage:', error);
+    }
+  }
+};
+
+// Update timer display
+const updateTimerDisplay = () => {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   
-  // 시간을 2자리 형식으로 표시 (01:05)
-  minutesDisplay.textContent = minutes.toString().padStart(2, '0');
-  secondsDisplay.textContent = seconds.toString().padStart(2, '0');
-  document.title = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} - 스마일 포모도로`;
+  minutesElement.textContent = minutes.toString().padStart(2, '0');
+  secondsElement.textContent = seconds.toString().padStart(2, '0');
 };
 
-// 타이머 상태 업데이트 함수
-const updateTimerState = (seconds, isRunning) => {
-  totalSeconds = seconds;
-  timerRunning = isRunning;
-  updateTimerDisplay();
+// 백그라운드 통신 함수: 타이머 시작
+const startTimer = () => {
+  if (timerRunning) return;
   
-  // 버튼 상태 업데이트
-  if (startButton && pauseButton) {
-    startButton.disabled = timerRunning;
-    pauseButton.disabled = !timerRunning;
-  }
-  
-  // 타이머가 실행 중이면 업데이트 인터벌 시작
-  if (timerRunning) {
-    startTimerUpdateInterval();
-  }
-};
-
-// 설정 로드 함수
-const loadSettings = () => {
-  // 확장 프로그램 환경에서는 chrome.storage 사용
   if (isExtension) {
-    chrome.storage.sync.get({
-      pomodoroTime: 25,
-      darkMode: false
-    }, (items) => {
-      settings = items;
-      console.log('Loaded settings from storage:', settings);
-      applySettings();
+    chrome.runtime.sendMessage({ action: 'startTimer' }, (response) => {
+      if (response && response.status === 'success') {
+        timerRunning = true;
+        startButton.disabled = true;
+        pauseButton.disabled = false;
+        
+        // 타이머 UI 업데이트 위한 로컬 인터벌 시작
+        startTimerUpdateInterval();
+      } else {
+        console.error('Failed to start timer:', response);
+      }
     });
   } else {
-    // 일반 웹 환경에서는 localStorage 사용
-    const savedSettings = localStorage.getItem('pomodoroSettings');
-    if (savedSettings) {
-      settings = JSON.parse(savedSettings);
-    }
-    applySettings();
+    // 확장 프로그램이 아닌 경우 직접 타이머 실행
+    timerRunning = true;
+    startButton.disabled = true;
+    pauseButton.disabled = false;
+    
+    // 웹 페이지 환경에서 직접 타이머 설정
+    timerInterval = setInterval(() => {
+      totalSeconds--;
+      updateTimerDisplay();
+      
+      if (totalSeconds <= 0) {
+        clearInterval(timerInterval);
+        timerRunning = false;
+        handleTimerCompleted();
+      }
+    }, 1000);
   }
 };
 
-// 설정 적용 함수
-const applySettings = () => {
-  const pomodoroTimeInput = document.getElementById('pomodoro-time');
-  if (pomodoroTimeInput) {
-    pomodoroTimeInput.value = settings.pomodoroTime;
-  }
+// 백그라운드 통신 함수: 타이머 일시정지
+const pauseTimer = () => {
+  if (!timerRunning) return;
   
-  // Set dark mode
-  if (darkModeToggle) {
-    if (settings.darkMode) {
-      document.body.setAttribute('data-theme', 'dark');
-      darkModeToggle.checked = true;
-    } else {
-      document.body.removeAttribute('data-theme');
-      darkModeToggle.checked = false;
-    }
-  }
-
-  // 확장프로그램 환경에서는 백그라운드에서 타이머 상태를 가져오므로 
-  // 여기서는 UI 설정만 적용하고 타이머 초기화는 하지 않음
-  if (!isExtension) {
-    // 확장 프로그램이 아닌 경우에만 타이머 초기화
-    totalSeconds = settings.pomodoroTime * 60;
-    updateTimerDisplay();
-  }
-  
-  // 백그라운드 타이머 설정만 업데이트 (확장 프로그램인 경우)
-  if (isExtension && !timerRunning) {
-    chrome.runtime.sendMessage({
-      action: 'resetTimer',
-      pomodoroTime: settings.pomodoroTime
+  if (isExtension) {
+    chrome.runtime.sendMessage({ action: 'pauseTimer' }, (response) => {
+      if (response && response.status === 'success') {
+        timerRunning = false;
+        startButton.disabled = false;
+        pauseButton.disabled = true;
+        
+        // 타이머 UI 업데이트 인터벌 정지
+        clearInterval(timerInterval);
+      } else {
+        console.error('Failed to pause timer:', response);
+      }
     });
+  } else {
+    // 확장 프로그램이 아닌 경우 직접 타이머 일시정지
+    clearInterval(timerInterval);
+    timerRunning = false;
+    startButton.disabled = false;
+    pauseButton.disabled = true;
+  }
+};
+
+// 백그라운드 통신 함수: 타이머 리셋
+const resetTimer = () => {
+  if (isExtension) {
+    chrome.runtime.sendMessage({ action: 'resetTimer' }, (response) => {
+      if (response && response.status === 'success') {
+        timerRunning = false;
+        startButton.disabled = false;
+        pauseButton.disabled = true;
+        
+        // 타이머 UI 업데이트 인터벌 정지
+        clearInterval(timerInterval);
+        
+        // 타이머 표시 업데이트
+        totalSeconds = parseInt(document.getElementById('pomodoro-time').value) * 60;
+        updateTimerDisplay();
+      } else {
+        console.error('Failed to reset timer:', response);
+      }
+    });
+  } else {
+    // 확장 프로그램이 아닌 경우 직접 타이머 리셋
+    clearInterval(timerInterval);
+    timerRunning = false;
+    startButton.disabled = false;
+    pauseButton.disabled = true;
+    
+    // 타이머 표시 업데이트
+    totalSeconds = parseInt(document.getElementById('pomodoro-time').value) * 60;
+    updateTimerDisplay();
   }
 };
 
@@ -119,710 +236,558 @@ const startTimerUpdateInterval = () => {
   }
   
   if (isExtension) {
-    console.log('Starting timer update interval');
     // 매 초마다 백그라운드 상태를 가져와 UI 업데이트
     timerInterval = setInterval(() => {
       chrome.runtime.sendMessage({ action: 'getTimerState' }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('Error getting timer state:', chrome.runtime.lastError);
-          clearInterval(timerInterval);
-          
-          // 백그라운드 통신 실패 시 로컬 타이머로 전환
-          handleBackgroundCommunicationError();
-          return;
-        }
-        
         if (response && response.status === 'success') {
           // 백그라운드 상태 업데이트
-          const newState = response.timerState;
+          totalSeconds = response.timerState.totalSeconds;
+          timerRunning = response.timerState.isRunning;
           
-          // 타이머 상태가 변경되었는지 확인
-          if (totalSeconds !== newState.totalSeconds || timerRunning !== newState.isRunning) {
-            console.log('Timer state changed:', newState);
-            totalSeconds = newState.totalSeconds;
-            timerRunning = newState.isRunning;
-            
-            // UI 업데이트
-            updateTimerDisplay();
-            if (startButton && pauseButton) {
-              startButton.disabled = timerRunning;
-              pauseButton.disabled = !timerRunning;
-            }
-          }
+          // UI 업데이트
+          updateTimerDisplay();
           
           // 타이머가 끝났거나 일시정지된 경우
-          if (!timerRunning && newState.totalSeconds === 0) {
-            console.log('Timer completed');
+          if (!timerRunning) {
             clearInterval(timerInterval);
-            // 타이머 완료 처리
-            handleTimerCompleted();
-          } else if (!newState.isRunning) {
-            console.log('Timer paused');
-            clearInterval(timerInterval);
+            startButton.disabled = false;
+            pauseButton.disabled = true;
           }
         } else {
           console.error('Failed to get timer state:', response);
-          clearInterval(timerInterval);
-          
-          // 백그라운드 통신 실패 시 로컬 타이머로 전환
-          handleBackgroundCommunicationError();
         }
       });
     }, 1000);
   } else {
     // 확장 프로그램이 아닌 경우 직접 UI 업데이트
-    timerInterval = setInterval(() => {
-      if (timerRunning && totalSeconds > 0) {
-        totalSeconds--;
-        updateTimerDisplay();
-        
-        if (totalSeconds === 0) {
-          timerRunning = false;
-          clearInterval(timerInterval);
-          handleTimerCompleted();
-        }
-      }
-    }, 1000);
+    // 이미 startTimer 함수에서 처리하므로 여기서는 추가 작업 불필요
   }
 };
 
-// 타이머 완료 처리
-const handleTimerCompleted = () => {
-  console.log('Timer completed! Showing smile detection...');
-  timerRunning = false;
-  if (startButton && pauseButton) {
-    startButton.disabled = false;
-    pauseButton.disabled = true;
-  }
-  
-  // 확장 프로그램 환경에서의 처리
-  if (isExtension) {
-    // 문서가 보이는 상태일 때만 스마일 감지 모달 표시
-    if (document.visibilityState === 'visible') {
-      const smileDetectionModal = document.getElementById('smile-detection-modal');
-      if (smileDetectionModal) {
-        // 기존에 hidden 클래스가 있는지 확인하고 로그
-        console.log('Modal initially hidden:', smileDetectionModal.classList.contains('hidden'));
-        
-        // 클래스를 명시적으로 제거
-        smileDetectionModal.classList.remove('hidden');
-        
-        // 스타일을 직접 설정하여 확실히 보이게 함
-        smileDetectionModal.style.display = 'flex';
-        
-        // 모달이 보이는지 확인
-        console.log('Modal displayed:', !smileDetectionModal.classList.contains('hidden'), 
-                    'style.display:', smileDetectionModal.style.display);
-        
-        // 약간의 지연 후 스마일 감지 시작 (UI가 렌더링될 시간 제공)
-        setTimeout(() => {
-          console.log('Starting smile detection after delay...');
-          startSmileDetection();
-        }, 100);
-      } else {
-        console.error('Smile detection modal element not found!');
-      }
-    } else {
-      console.log('Document not visible, skipping smile detection');
-    }
-  } else {
-    // 일반 웹 환경에서는 브라우저 알림
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('포모도로 타이머 완료', {
-        body: '휴식 시간입니다. 미소를 지어주세요!',
-        icon: 'icon.png'
+// Show browser notification
+const showBrowserNotification = (title, message) => {
+  if ('Notification' in window) {
+    if (Notification.permission === 'granted') {
+      new Notification(title, { 
+        body: message,
+        icon: 'images/icon.png'
+      });
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          new Notification(title, { 
+            body: message,
+            icon: 'images/icon.png'
+          });
+        }
       });
     }
   }
 };
 
-// 백그라운드 통신 오류 처리
-const handleBackgroundCommunicationError = () => {
-  console.warn('Switching to local timer due to background communication error');
-  
-  // 로컬 타이머로 전환
-  if (timerRunning) {
-    timerInterval = setInterval(() => {
-      if (timerRunning && totalSeconds > 0) {
-        totalSeconds--;
-        updateTimerDisplay();
-        
-        if (totalSeconds === 0) {
-          timerRunning = false;
-          clearInterval(timerInterval);
-          handleTimerCompleted();
+// Check camera permission on startup
+const checkCameraPermission = () => {
+  // Chrome 스토리지에서 카메라 권한 상태 확인
+  if (isExtension) {
+    try {
+      chrome.storage.sync.get('cameraPermissionGranted', (result) => {
+        if (result.cameraPermissionGranted) {
+          // 권한이 있는 경우
+          cameraPermissionGranted = true;
+          requestCameraButton.classList.add('granted');
+          requestCameraButton.textContent = "Camera Access Granted";
+          cameraStatusText.textContent = "You can now use smile detection feature";
+        } else {
+          // 권한이 없는 경우
+          cameraPermissionGranted = false;
+          cameraStatusText.textContent = "Camera permission needed. Please click the button below.";
         }
-      }
-    }, 1000);
+      });
+    } catch (error) {
+      console.error('Error accessing chrome storage:', error);
+      // 권한 API 사용 시도
+      checkCameraPermissionAPI();
+    }
+  } else {
+    // 확장 프로그램이 아닌 경우 권한 API 사용
+    checkCameraPermissionAPI();
   }
 };
 
-// 타이머 시작 함수
-const startTimer = () => {
-  if (timerRunning) return;
-  
-  timerRunning = true;
-  if (startButton && pauseButton) {
-    startButton.disabled = true;
-    pauseButton.disabled = false;
-  }
-  
-  if (isExtension) {
-    console.log('Sending start timer message to background');
-    chrome.runtime.sendMessage({ action: 'startTimer' }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Error starting timer:', chrome.runtime.lastError);
-        // 백그라운드 통신 실패 시 로컬 타이머로 전환
-        handleBackgroundCommunicationError();
-        return;
-      }
-      
-      if (!response || response.status !== 'success') {
-        console.error('Failed to start timer:', response);
-        // 백그라운드 응답 실패 시 로컬 타이머로 전환
-        handleBackgroundCommunicationError();
-        return;
-      }
-      
-      console.log('Timer started successfully');
-      startTimerUpdateInterval();
-    });
-  } else {
-    // 확장 프로그램이 아닌 경우 직접 타이머 실행
-    startTimerUpdateInterval();
+// Browser Permissions API를 사용한 권한 체크 (fallback)
+const checkCameraPermissionAPI = async () => {
+  try {
+    const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+    
+    if (permissionStatus.state === 'granted') {
+      cameraPermissionGranted = true;
+      requestCameraButton.classList.add('granted');
+      requestCameraButton.textContent = "Camera Access Granted";
+      cameraStatusText.textContent = "You can now use smile detection feature";
+    } else if (permissionStatus.state === 'denied') {
+      cameraStatusText.textContent = "Camera access blocked. Please update your browser settings.";
+    } else {
+      cameraStatusText.textContent = "Camera permission needed for smile detection";
+    }
+  } catch (error) {
+    console.error('Error checking camera permission API:', error);
+    cameraStatusText.textContent = "Click the button below to check camera permission";
   }
 };
 
-// 타이머 일시정지 함수
-const pauseTimer = () => {
-  if (!timerRunning) return;
-  
+// 카메라 권한 요청 버튼 클릭 이벤트
+requestCameraButton.addEventListener('click', () => {
   if (isExtension) {
-    console.log('Sending pause timer message to background');
-    chrome.runtime.sendMessage({ action: 'pauseTimer' }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Error pausing timer:', chrome.runtime.lastError);
-        
-        // 백그라운드 통신 실패 시 로컬 처리
-        clearInterval(timerInterval);
-        timerRunning = false;
-        if (startButton && pauseButton) {
-          startButton.disabled = false;
-          pauseButton.disabled = true;
-        }
-        return;
-      }
-      
-      if (!response || response.status !== 'success') {
-        console.error('Failed to pause timer:', response);
-        
-        // 백그라운드 응답 실패 시 로컬 처리
-        clearInterval(timerInterval);
-        timerRunning = false;
-        if (startButton && pauseButton) {
-          startButton.disabled = false;
-          pauseButton.disabled = true;
-        }
-        return;
-      }
-      
-      console.log('Timer paused successfully');
-    });
+    // 확장 프로그램이라면 옵션 페이지로 이동
+    chrome.runtime.openOptionsPage();
   } else {
-    // 확장 프로그램이 아닌 경우 직접 타이머 정지
-    clearInterval(timerInterval);
-    timerRunning = false;
-    if (startButton && pauseButton) {
-      startButton.disabled = false;
-      pauseButton.disabled = true;
+    // 일반 웹 페이지라면 권한 직접 요청
+    requestCameraPermissionDirectly();
+  }
+});
+
+// 웹 페이지에서 직접 권한 요청 (확장 프로그램이 아닌 경우)
+const requestCameraPermissionDirectly = async () => {
+  try {
+    requestCameraButton.disabled = true;
+    cameraStatusText.textContent = "Requesting permission...";
+    
+    // 간단한 비디오 제약 조건으로 카메라 접근 시도
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: true
+    });
+    
+    // 접근이 성공하면 스트림 중지
+    stream.getTracks().forEach(track => track.stop());
+    console.log('Camera permission granted');
+    
+    // 권한 확인 상태 업데이트
+    cameraPermissionGranted = true;
+    requestCameraButton.classList.add('granted');
+    requestCameraButton.textContent = "Camera Access Granted";
+    cameraStatusText.textContent = "You can now use smile detection feature";
+  } catch (error) {
+    console.error('Error requesting camera permission:', error);
+    requestCameraButton.disabled = false;
+    
+    if (error.name === 'NotAllowedError') {
+      cameraStatusText.textContent = "Camera access denied. Please try again or check your browser settings.";
+    } else if (error.name === 'NotFoundError') {
+      cameraStatusText.textContent = "No camera found. Please connect a camera.";
+    } else {
+      cameraStatusText.textContent = "Error: " + error.message;
     }
   }
 };
 
-// 타이머 리셋 함수
-const resetTimer = () => {
-  if (isExtension) {
-    console.log('Sending reset timer message to background');
-    chrome.runtime.sendMessage({ 
-      action: 'resetTimer',
-      pomodoroTime: settings.pomodoroTime 
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Error resetting timer:', chrome.runtime.lastError);
-        
-        // 백그라운드 통신 실패 시 로컬 처리
-        clearInterval(timerInterval);
-        totalSeconds = settings.pomodoroTime * 60;
-        timerRunning = false;
-        updateTimerDisplay();
-        if (startButton && pauseButton) {
-          startButton.disabled = false;
-          pauseButton.disabled = true;
-        }
-        return;
-      }
-      
-      if (!response || response.status !== 'success') {
-        console.error('Failed to reset timer:', response);
-        
-        // 백그라운드 응답 실패 시 로컬 처리
-        clearInterval(timerInterval);
-        totalSeconds = settings.pomodoroTime * 60;
-        timerRunning = false;
-        updateTimerDisplay();
-        if (startButton && pauseButton) {
-          startButton.disabled = false;
-          pauseButton.disabled = true;
-        }
-        return;
-      }
-      
-      console.log('Timer reset successfully');
-    });
-  } else {
-    // 확장 프로그램이 아닌 경우 직접 타이머 리셋
-    clearInterval(timerInterval);
-    totalSeconds = settings.pomodoroTime * 60;
-    timerRunning = false;
-    updateTimerDisplay();
-    if (startButton && pauseButton) {
-      startButton.disabled = false;
-      pauseButton.disabled = true;
+// Show smile detection modal
+const showSmileDetectionModal = async () => {
+  smileDetectionModal.classList.remove('hidden');
+  
+  // 카메라 권한이 없는 경우
+  if (!cameraPermissionGranted) {
+    // 메시지 표시하고 옵션 페이지 링크 제공
+    const modal = document.querySelector('.modal-content');
+    const permissionMessage = document.createElement('div');
+    
+    if (isExtension) {
+      permissionMessage.innerHTML = '<p>카메라 권한이 필요합니다</p><p>카메라 접근 권한을 허용하려면 <button id="open-options" class="btn">설정 페이지</button>를 클릭하세요.</p>';
+    } else {
+      permissionMessage.innerHTML = '<p>카메라 권한이 필요합니다</p><p>설정 영역에서 "Allow Camera Access" 버튼을 클릭하여 권한을 요청하세요.</p>';
     }
+    
+    permissionMessage.style.margin = '20px 0';
+    permissionMessage.style.color = 'var(--error-color)';
+    permissionMessage.style.fontWeight = 'bold';
+    modal.appendChild(permissionMessage);
+    
+    // 옵션 페이지 버튼에 이벤트 리스너 추가
+    if (isExtension) {
+      const optionsButton = permissionMessage.querySelector('#open-options');
+      optionsButton.addEventListener('click', () => {
+        chrome.runtime.openOptionsPage();
+      });
+    }
+    
+    // 닫기 버튼 추가
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '닫기';
+    closeButton.className = 'btn';
+    closeButton.style.marginLeft = '10px';
+    closeButton.addEventListener('click', () => {
+      modal.removeChild(permissionMessage);
+      if (modal.contains(closeButton)) modal.removeChild(closeButton);
+      smileDetectionModal.classList.add('hidden');
+    });
+    
+    modal.appendChild(closeButton);
+    return;
+  }
+  
+  // 카메라 권한이 있다면 얼굴 감지 초기화
+  try {
+    await initFaceDetection();
+  } catch (error) {
+    console.error('Failed to initialize camera:', error);
+    // Handle error in UI
+    const modal = document.querySelector('.modal-content');
+    const errorMessage = document.createElement('div');
+    errorMessage.textContent = '카메라 초기화 오류가 발생했습니다. 다시 시도해주세요.';
+    errorMessage.style.color = 'var(--error-color)';
+    errorMessage.style.margin = '10px 0';
+    errorMessage.style.fontWeight = 'bold';
+    modal.appendChild(errorMessage);
+    
+    // Add a button to try again
+    const retryButton = document.createElement('button');
+    retryButton.textContent = '다시 시도';
+    retryButton.className = 'btn';
+    retryButton.style.margin = '10px auto';
+    retryButton.style.display = 'block';
+    retryButton.addEventListener('click', () => {
+      modal.removeChild(errorMessage);
+      modal.removeChild(retryButton);
+      showSmileDetectionModal();
+    });
+    modal.appendChild(retryButton);
   }
 };
 
-// 다크 모드 토글 함수
+// Initialize face detection
+const initFaceDetection = async () => {
+  try {
+    // Check if faceapi is available
+    if (typeof faceapi === 'undefined') {
+      console.error('face-api.js is not loaded. Please check the script tag.');
+      alert('Face recognition library has not been loaded. Please try again in a moment.');
+      smileDetectionModal.classList.add('hidden');
+      return;
+    }
+    
+    // Load face-api.js models
+    try {
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('models'),
+        faceapi.nets.faceExpressionNet.loadFromUri('models')
+      ]);
+    } catch (modelError) {
+      console.error('Error loading face-api.js models:', modelError);
+      alert('Failed to load face recognition model, please make sure the model file is in the correct location.');
+      smileDetectionModal.classList.add('hidden');
+      return;
+    }
+    
+    // Get camera access with clear instructions
+    let stream;
+    try {
+      // 최대한 단순한 제약 조건으로 카메라 접근 시도
+      const constraints = {
+        audio: false,
+        video: true
+      };
+      
+      console.log('Accessing camera...');
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      video.srcObject = stream;
+      console.log('Camera access successful');
+    } catch (cameraError) {
+      console.error('Error accessing camera:', cameraError);
+      
+      // 옵션 페이지로 이동 안내 추가
+      if (isExtension) {
+        alert("카메라 접근에 문제가 있습니다. 설정 페이지로 이동하여 권한을 허용해주세요.");
+        chrome.runtime.openOptionsPage();
+      } else {
+        if (cameraError.name === 'NotAllowedError') {
+          alert("카메라 접근이 거부되었습니다. 브라우저 설정에서 카메라 접근을 허용해주세요.");
+        } else if (cameraError.name === 'NotFoundError') {
+          alert("카메라를 찾을 수 없습니다. 카메라가 제대로 연결되어 있는지 확인해주세요.");
+        } else {
+          alert("카메라 접근 오류: " + cameraError.message);
+        }
+      }
+      
+      smileDetectionModal.classList.add('hidden');
+      return;
+    }
+    
+    // Start detection once video is playing
+    video.addEventListener('play', () => {
+      // 비디오 크기를 직접 설정합니다
+      const videoWidth = video.offsetWidth || 300;
+      const videoHeight = video.offsetHeight || 300;
+      
+      // 캔버스 크기를 비디오 크기에 맞게 설정합니다
+      canvas.width = videoWidth;
+      canvas.height = videoHeight;
+      
+      const displaySize = { width: videoWidth, height: videoHeight };
+      faceapi.matchDimensions(canvas, displaySize);
+      
+      console.log('Video dimensions:', displaySize);
+      
+      // 진행 원이 초기화 되었는지 확인
+      smileProgressCircle.style.strokeDashoffset = circleCircumference;
+      
+      // Run detection every 100ms
+      const detectionInterval = setInterval(async () => {
+        if (!video.srcObject) {
+          // Video stream was stopped
+          clearInterval(detectionInterval);
+          return;
+        }
+        
+        try {
+          const detections = await faceapi.detectAllFaces(
+            video, 
+            new faceapi.TinyFaceDetectorOptions()
+          ).withFaceExpressions();
+          
+          // 감지 결과 로깅
+          if (detections.length > 0) {
+            console.log('Face detected, expressions:', detections[0].expressions);
+          } else {
+            console.log('No face detected');
+          }
+          
+          // 캔버스 초기화
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          if (detections.length > 0) {
+            const expressions = detections[0].expressions;
+            const happy = expressions.happy;
+            
+            console.log('Happiness level:', happy);
+            
+            // 파란 박스와 표정 텍스트 대신 상태 텍스트만 표시
+            ctx.font = 'bold 28px Roboto';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            
+            if (happy > 0.7) {
+              // 웃는 경우
+              ctx.fillStyle = 'rgba(76, 175, 80, 0.9)'; // 초록색
+              // 텍스트 그림자 추가
+              ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+              ctx.shadowBlur = 4;
+              ctx.shadowOffsetX = 2;
+              ctx.shadowOffsetY = 2;
+              ctx.fillText('Cool!', canvas.width / 2, 20);
+              // 그림자 초기화
+              ctx.shadowColor = 'transparent';
+              ctx.shadowBlur = 0;
+              ctx.shadowOffsetX = 0;
+              ctx.shadowOffsetY = 0;
+              
+              smileTimer += 0.1; // Add 100ms
+              console.log('Smiling detected, timer:', smileTimer);
+              
+              // Update progress circle
+              const progress = (smileTimer / smileRequired);
+              const dashoffset = circleCircumference * (1 - progress);
+              smileProgressCircle.style.strokeDashoffset = dashoffset;
+              console.log('Progress:', progress, 'Dashoffset:', dashoffset);
+              
+              // 완료되면 클리어 효과 추가 및 폐쇄
+              if (smileTimer >= smileRequired) {
+                console.log('Smile duration completed!');
+                
+                // 클리어 효과 추가
+                playClearEffect(stream);
+                
+                clearInterval(detectionInterval);
+              }
+            } else {
+              // 웃지 않는 경우
+              ctx.fillStyle = 'rgba(255, 152, 0, 0.9)'; // 주황색
+              // 텍스트 그림자 추가
+              ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+              ctx.shadowBlur = 4;
+              ctx.shadowOffsetX = 2;
+              ctx.shadowOffsetY = 2;
+              ctx.fillText('Please smile!', canvas.width / 2, 20);
+              // 그림자 초기화
+              ctx.shadowColor = 'transparent';
+              ctx.shadowBlur = 0;
+              ctx.shadowOffsetX = 0;
+              ctx.shadowOffsetY = 0;
+              
+              // Reset timer if not smiling
+              smileTimer = 0;
+              smileProgressCircle.style.strokeDashoffset = circleCircumference;
+            }
+          } else {
+            // 얼굴이 감지되지 않은 경우
+            ctx.font = 'bold 28px Roboto';
+            ctx.fillStyle = 'rgba(244, 67, 54, 0.9)'; // 빨간색
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            // 텍스트 그림자 추가
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            ctx.fillText('No face detected 🔍', canvas.width / 2, 20);
+            // 그림자 초기화
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            
+            // Reset timer if no face
+            smileTimer = 0;
+            smileProgressCircle.style.strokeDashoffset = circleCircumference;
+          }
+        } catch (detectionError) {
+          console.error('Error during face detection:', detectionError);
+          // Don't stop the interval, just skip this frame
+        }
+      }, 100);
+    });
+  } catch (error) {
+    console.error('Face detection error:', error);
+    alert('An error occurred during face recognition initialization.');
+    smileDetectionModal.classList.add('hidden');
+  }
+};
+
+// 클리어 효과 재생 및 닫기
+const playClearEffect = (stream) => {
+  // 비디오 컨테이너에 클리어 효과 애니메이션 추가
+  const videoContainer = document.querySelector('.video-container');
+  videoContainer.classList.add('clear-animation');
+  
+  // 프로그레스 바 깜빡이는 효과 추가
+  smileProgressCircle.classList.add('progress-flash');
+  smileProgressCircle.style.strokeDashoffset = '0'; // 완전히 채워진 상태로 유지
+  
+  // 클리어 사운드 효과 (선택적)
+  try {
+    const audio = new Audio();
+    audio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAEluZm8AAAAPAAAAAwAAAbAAiIiIiIiIiIiIiIiIiIiIiIjMzMzMzMzMzMzMzMzMzMzMzMz///////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAWt/wAAAAAAAEQCAAAP//NEAAAAAAAA/+NAwAAAAHUAKu8TQ/gAO6wIAAAMYBAQAF9/9OALu84IAAYwGu7vf//HgYxjGD35/+cEDeD/5/8+DnP/n/yBhIGFwfB8HwfBAf/8H//4P////g+D4Pg+D8EDe//Bw/////wQfwfB8HwfB8ED//gAAIIAYC4EAYYZQDQGQVAqBACEIpGFzwPgkABPwLgGQZAxB0EYQrQUgRhgEgMgtB8DIBgVAAkoCcNQVAnCEKQ5BUDQQQoCQNwQPAkAwNwMgcDAFZuCoJQhCkCAYg6CMIQUhiGIgicJQNBmDkKQRhCFIQgTEIA';
+    audio.play();
+  } catch (e) {
+    console.log('Sound effect not supported');
+  }
+  
+  // 텍스트 피드백
+  const modal = document.querySelector('.modal-content');
+  const feedbackText = document.createElement('div');
+  feedbackText.textContent = 'Completed! Good job.';
+  feedbackText.style.color = 'var(--success-color)';
+  feedbackText.style.fontWeight = 'bold';
+  feedbackText.style.margin = '10px 0';
+  feedbackText.style.fontSize = '18px';
+  modal.appendChild(feedbackText);
+  
+  // 애니메이션이 끝나면 모달 닫기
+  setTimeout(() => {
+    videoContainer.classList.remove('clear-animation');
+    smileProgressCircle.classList.remove('progress-flash');
+    
+    dismissSmileDetection(stream);
+    
+    // 피드백 텍스트 제거 (다음 번에 사용할 때를 위해)
+    if (modal.contains(feedbackText)) {
+      modal.removeChild(feedbackText);
+    }
+  }, 1500); // 더 긴 시간으로 설정
+};
+
+// Dismiss smile detection
+const dismissSmileDetection = (stream) => {
+  if (stream && stream.getTracks) {
+    // Stop all tracks in the stream
+    stream.getTracks().forEach(track => track.stop());
+  }
+  
+  // Hide modal
+  smileDetectionModal.classList.add('hidden');
+  
+  // Clear canvas
+  if (canvas && canvas.getContext) {
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  }
+  
+  // Reset smile variables
+  smileTimer = 0;
+  smileProgressCircle.style.strokeDashoffset = circleCircumference;
+  
+  // 타이머가 자동으로 시작되지 않도록 변경
+  // 대신 타이머를 초기화된 상태로 유지
+  totalSeconds = parseInt(document.getElementById('pomodoro-time').value) * 60;
+  updateTimerDisplay();
+  startButton.disabled = false;
+  pauseButton.disabled = true;
+};
+
+// Toggle dark mode
 const toggleDarkMode = () => {
-  if (!darkModeToggle) return;
-  
-  settings.darkMode = darkModeToggle.checked;
-  
-  if (settings.darkMode) {
+  if (darkModeToggle.checked) {
     document.body.setAttribute('data-theme', 'dark');
   } else {
     document.body.removeAttribute('data-theme');
   }
-  
   saveSettings();
-};
-
-// 설정 저장 함수
-const saveSettings = () => {
-  const pomodoroTimeInput = document.getElementById('pomodoro-time');
-  if (pomodoroTimeInput) {
-    settings.pomodoroTime = parseInt(pomodoroTimeInput.value, 10) || 25;
-  }
-  
-  if (isExtension) {
-    chrome.storage.sync.set(settings, () => {
-      console.log('Settings saved:', settings);
-    });
-    
-    // 백그라운드 타이머 설정도 업데이트
-    if (!timerRunning) {
-      resetTimer();
-    }
-  } else {
-    localStorage.setItem('pomodoroSettings', JSON.stringify(settings));
-    
-    // 타이머 상태 업데이트
-    if (!timerRunning) {
-      totalSeconds = settings.pomodoroTime * 60;
-      updateTimerDisplay();
-    }
-  }
-};
-
-// 카메라 권한 확인 함수
-const checkCameraPermission = () => {
-  const cameraPermissionStatus = document.getElementById('camera-status');
-  const allowCameraButton = document.getElementById('request-camera-btn');
-  
-  if (!cameraPermissionStatus || !allowCameraButton) return;
-  
-  navigator.permissions.query({name: 'camera'}).then(permissionStatus => {
-    console.log('Camera permission status:', permissionStatus.state);
-    
-    const updatePermissionStatus = (state) => {
-      if (state === 'granted') {
-        cameraPermissionStatus.textContent = '카메라 접근 권한이 허용되었습니다.';
-        cameraPermissionStatus.style.color = 'green';
-        allowCameraButton.disabled = true;
-      } else if (state === 'denied') {
-        cameraPermissionStatus.textContent = '카메라 접근이 차단되었습니다. 브라우저 설정에서 권한을 변경해주세요.';
-        cameraPermissionStatus.style.color = 'red';
-      } else {
-        cameraPermissionStatus.textContent = '타이머 완료 후 스마일 감지를 위해 카메라 접근을 허용해주세요.';
-        cameraPermissionStatus.style.color = '';
-      }
-    };
-    
-    // 초기 상태 업데이트
-    updatePermissionStatus(permissionStatus.state);
-    
-    // 상태 변경 감지
-    permissionStatus.onchange = () => {
-      updatePermissionStatus(permissionStatus.state);
-    };
-  }).catch(err => {
-    console.error('Error checking camera permission:', err);
-    cameraPermissionStatus.textContent = '카메라 권한을 확인할 수 없습니다.';
-  });
-  
-  // 권한 요청 버튼 이벤트 처리
-  allowCameraButton.addEventListener('click', () => {
-    navigator.mediaDevices.getUserMedia({ 
-      video: { 
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        facingMode: "user"
-      } 
-    })
-    .then(stream => {
-      stream.getTracks().forEach(track => track.stop());
-      console.log('Camera access granted');
-      cameraPermissionStatus.textContent = '카메라 접근 권한이 허용되었습니다.';
-      cameraPermissionStatus.style.color = 'green';
-      allowCameraButton.disabled = true;
-    })
-    .catch(err => {
-      console.error('Error requesting camera permission:', err);
-      
-      if (err.name === 'NotAllowedError') {
-        cameraPermissionStatus.textContent = '카메라 접근이 차단되었습니다. 브라우저 설정에서 권한을 변경해주세요.';
-      } else if (err.name === 'NotFoundError') {
-        cameraPermissionStatus.textContent = '카메라를 찾을 수 없습니다.';
-      } else {
-        cameraPermissionStatus.textContent = `카메라 접근 오류: ${err.message}`;
-      }
-      
-      cameraPermissionStatus.style.color = 'red';
-    });
-  });
-};
-
-// 얼굴 인식 모델 로드
-const loadFaceDetectionModels = async () => {
-  console.log('Loading face detection models...');
-  try {
-    // 수정: models 폴더 경로 수정
-    let modelsPath = isExtension ? chrome.runtime.getURL('models') : 'models';
-    
-    // CDN 모델 경로 (로컬이 없는 경우를 위한 대체)
-    const cdnModelsPath = 'https://justadudewhohacks.github.io/face-api.js/models';
-    
-    try {
-      // SSD MobileNet 모델 로드 시도
-      await faceapi.loadSsdMobilenetv1Model(modelsPath);
-      console.log('Successfully loaded SSD MobileNet model from', modelsPath);
-    } catch (localError) {
-      // 로컬 로딩 실패 시 CDN 사용
-      console.warn('Failed to load models from local path, trying CDN:', localError);
-      modelsPath = cdnModelsPath;
-      await faceapi.loadSsdMobilenetv1Model(modelsPath);
-    }
-    
-    // 나머지 모델 로드
-    await faceapi.loadFaceLandmarkModel(modelsPath);
-    await faceapi.loadFaceExpressionModel(modelsPath);
-    
-    console.log('Face detection models loaded successfully from', modelsPath);
-    return true;
-  } catch (error) {
-    console.error('Error loading face detection models:', error);
-    
-    // 모달에 에러 메시지 표시
-    const smileDetectionModal = document.getElementById('smile-detection-modal');
-    if (smileDetectionModal) {
-      const modalContent = smileDetectionModal.querySelector('.modal-content');
-      if (modalContent) {
-        const errorMsg = document.createElement('p');
-        errorMsg.style.color = 'red';
-        errorMsg.textContent = '얼굴 인식 모델을 로드하는데 실패했습니다. 새로고침 후 다시 시도해 주세요.';
-        modalContent.appendChild(errorMsg);
-      }
-    }
-    
-    return false;
-  }
-};
-
-// 스마일 감지 시작
-const startSmileDetection = async () => {
-  console.log('Starting smile detection...');
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const progressCircle = document.getElementById('smile-progress-circle');
-  const circumference = 2 * Math.PI * 50; // 원 둘레 (반지름이 50인 원)
-  
-  if (!video || !canvas || !progressCircle) {
-    console.error('Video, canvas or progress circle element not found');
-    return;
-  }
-  
-  // 프로그레스 원 초기화
-  progressCircle.style.strokeDasharray = circumference;
-  progressCircle.style.strokeDashoffset = circumference;
-  
-  // 미소 감지 상태 초기화
-  smileDetected = false;
-  smileDetectionStartTime = null;
-  smileTimer = 0;
-  
-  // 기존 스트림이 있다면 정리
-  if (video.srcObject) {
-    const tracks = video.srcObject.getTracks();
-    tracks.forEach(track => track.stop());
-    video.srcObject = null;
-  }
-  
-  // 기존 감지 인터벌 정리
-  if (faceDetectionInterval) {
-    clearInterval(faceDetectionInterval);
-    faceDetectionInterval = null;
-  }
-  
-  try {
-    // 얼굴 인식 모델 로드 (이미 로드되어 있지 않은 경우)
-    if (!faceapi.nets.ssdMobilenetv1.isLoaded) {
-      console.log('Loading face detection models...');
-      const modelLoaded = await loadFaceDetectionModels();
-      if (!modelLoaded) {
-        console.error('Failed to load face detection models');
-        return;
-      }
-    }
-    
-    // 카메라 스트림 가져오기
-    console.log('Requesting camera access...');
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        facingMode: "user"
-      }
-    });
-    
-    video.srcObject = stream;
-    
-    // 비디오 플레이 시작
-    try {
-      await video.play();
-      console.log('Video playback started');
-    } catch (error) {
-      console.error('Error playing video:', error);
-      throw error;
-    }
-    
-    // 비디오 크기에 맞게 캔버스 설정
-    const displaySize = { width: video.videoWidth, height: video.videoHeight };
-    faceapi.matchDimensions(canvas, displaySize);
-    
-    // 얼굴 인식 시작
-    console.log('Starting face detection interval...');
-    faceDetectionInterval = setInterval(async () => {
-      if (video.paused || video.ended) return;
-      
-      try {
-        // 얼굴 인식
-        const detections = await faceapi.detectAllFaces(video)
-          .withFaceLandmarks()
-          .withFaceExpressions();
-        
-        // 디스플레이 크기에 맞게 결과 조정
-        const displaySize = { width: video.videoWidth, height: video.videoHeight };
-        const resizedDetections = faceapi.resizeResults(detections, displaySize);
-        
-        // 캔버스 초기화
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // 결과 그리기
-        faceapi.draw.drawDetections(canvas, resizedDetections);
-        faceapi.draw.drawFaceExpressions(canvas, resizedDetections);
-        
-        // 미소 감지
-        if (detections.length > 0) {
-          const expressions = detections[0].expressions;
-          const smileScore = expressions.happy;
-          console.log('Smile score:', smileScore);
-          
-          if (smileScore > 0.7) { // 미소 임계값
-            if (!smileDetected) {
-              smileDetected = true;
-              smileDetectionStartTime = Date.now();
-            }
-            
-            const smileDuration = (Date.now() - smileDetectionStartTime) / 1000;
-            smileTimer = Math.min(smileDuration, requiredSmileTime);
-            
-            // 프로그레스 바 업데이트
-            const progress = smileTimer / requiredSmileTime;
-            const dashOffset = circumference * (1 - progress);
-            progressCircle.style.strokeDashoffset = dashOffset;
-            
-            // 지정된 시간동안 미소 유지 시 성공
-            if (smileTimer >= requiredSmileTime) {
-              console.log('Smile detected for required time! Completing session...');
-              
-              // 감지 인터벌 정리
-              clearInterval(faceDetectionInterval);
-              faceDetectionInterval = null;
-              
-              // 비디오 스트림 종료
-              if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-              }
-              video.srcObject = null;
-              
-              // 캔버스 초기화
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              
-              // 스마일 감지 모달 숨기기
-              const smileDetectionModal = document.getElementById('smile-detection-modal');
-              if (smileDetectionModal) {
-                smileDetectionModal.classList.add('hidden');
-              }
-              
-              // 새로운 포모도로 타이머 세션 준비
-              console.log('Resetting timer...');
-              resetTimer();
-            }
-          } else {
-            // 미소가 사라지면 타이머 리셋
-            if (smileDetected) {
-              smileDetected = false;
-              smileDetectionStartTime = null;
-              smileTimer = 0;
-              progressCircle.style.strokeDashoffset = circumference;
-            }
-          }
-        } else {
-          // 얼굴이 감지되지 않으면 타이머 리셋
-          if (smileDetected) {
-            smileDetected = false;
-            smileDetectionStartTime = null;
-            smileTimer = 0;
-            progressCircle.style.strokeDashoffset = circumference;
-          }
-        }
-      } catch (error) {
-        console.error('Error during face detection:', error);
-      }
-    }, 100);
-  } catch (error) {
-    console.error('Error accessing camera:', error);
-    
-    // 카메라 접근 오류 처리
-    const smileDetectionModal = document.getElementById('smile-detection-modal');
-    if (smileDetectionModal) {
-      const modalContent = smileDetectionModal.querySelector('.modal-content');
-      if (modalContent) {
-        const errorMsg = document.createElement('p');
-        errorMsg.style.color = 'red';
-        errorMsg.textContent = '카메라 접근에 실패했습니다: ' + error.message;
-        modalContent.appendChild(errorMsg);
-      }
-    }
-  }
 };
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('Popup initialized');
+  // Load settings
+  loadSettings();
   
-  // UI 요소 초기화
-  startButton = document.getElementById('start-btn');
-  pauseButton = document.getElementById('pause-btn');
-  resetButton = document.getElementById('reset-btn');
-  darkModeToggle = document.getElementById('dark-mode-toggle');
-  minutesDisplay = document.getElementById('minutes');
-  secondsDisplay = document.getElementById('seconds');
-  
-  // UI 초기화에 오류가 있다면 로그
-  if (!startButton || !pauseButton || !resetButton || !minutesDisplay || !secondsDisplay) {
-    console.error('일부 UI 요소를 찾을 수 없습니다:', {
-      startButton,
-      pauseButton, 
-      resetButton,
-      minutesDisplay,
-      secondsDisplay
-    });
-  }
-  
-  // 얼굴 인식 모델 미리 로드
-  console.log('Pre-loading face detection models...');
-  loadFaceDetectionModels().then(success => {
-    console.log('Face detection models pre-loaded:', success);
-  }).catch(error => {
-    console.error('Error pre-loading face detection models:', error);
-  });
-  
-  // 우선 UI만 초기화
-  updateTimerDisplay();
-  startButton.disabled = false;
-  pauseButton.disabled = true;
-  
-  // 카메라 권한 확인
+  // Check camera permission
   checkCameraPermission();
   
-  // 확장 프로그램인 경우 백그라운드 상태 먼저 확인
+  // 확장 프로그램인 경우에만 백그라운드 통신 실행
   if (isExtension) {
-    console.log('Checking for background script...');
-    
-    // 백그라운드에서 타이머 상태 가져오기
+    // 백그라운드로부터 현재 타이머 상태 가져오기
     chrome.runtime.sendMessage({ action: 'getTimerState' }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Error communicating with background script:', chrome.runtime.lastError);
-        console.warn('Using local timer instead of background timer');
-        // 백그라운드 통신 실패 시 설정 로드
-        loadSettings();
-        return;
-      }
-      
       if (response && response.status === 'success') {
-        console.log('Received timer state from background:', response.timerState);
+        // 백그라운드 상태로 UI 업데이트
+        totalSeconds = response.timerState.totalSeconds;
+        timerRunning = response.timerState.isRunning;
         
-        // 항상 백그라운드의 타이머 상태를 적용 (실행 중이든 아니든)
-        console.log('Applying timer state from background:', response.timerState.totalSeconds, response.timerState.isRunning);
-        updateTimerState(response.timerState.totalSeconds, response.timerState.isRunning);
+        // 버튼 상태 업데이트
+        startButton.disabled = timerRunning;
+        pauseButton.disabled = !timerRunning;
         
-        // 타이머가 0초라면 완료된 상태
-        if (response.timerState.totalSeconds === 0) {
-          console.log('Timer appears to be completed, showing smile detection modal');
-          // 팝업이 열릴 때 타이머가 완료된 상태라면 모달 표시
-          setTimeout(() => {
-            handleTimerCompleted();
-          }, 500); // 약간의 지연을 주어 UI가 준비된 후 표시
+        // 타이머 표시 업데이트
+        updateTimerDisplay();
+        
+        // 타이머가 실행 중이면 업데이트 인터벌 시작
+        if (timerRunning) {
+          startTimerUpdateInterval();
         }
-        
-        // 이후 다른 설정들 로드 (타이머 상태는 덮어쓰지 않음)
-        loadSettings();
-      } else {
-        console.error('Failed to get timer state from background:', response);
-        console.warn('Using local timer settings');
-        // 백그라운드 응답 실패 시 설정 로드
-        loadSettings();
       }
     });
-  } else {
-    // 확장 프로그램이 아닌 경우 바로 설정 로드
-    loadSettings();
-  }
-  
-  // 백그라운드 메시지 리스너 설정
-  if (isExtension) {
+    
+    // 백그라운드 메시지 리스너 설정
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log('Received message from background:', message);
       
       if (message.action === 'timerUpdate') {
         // 타이머 상태 업데이트
-        updateTimerState(message.timerState.totalSeconds, message.timerState.isRunning);
+        totalSeconds = message.timerState.totalSeconds;
+        timerRunning = message.timerState.isRunning;
+        
+        // UI 업데이트
+        updateTimerDisplay();
+        startButton.disabled = timerRunning;
+        pauseButton.disabled = !timerRunning;
       }
       else if (message.action === 'timerCompleted') {
         // 타이머 완료 처리
-        updateTimerState(0, false);
+        timerRunning = false;
+        totalSeconds = 0;
+        updateTimerDisplay();
+        
+        // 버튼 상태 업데이트
+        startButton.disabled = false;
+        pauseButton.disabled = true;
         
         // 타이머 완료 UI 처리
         handleTimerCompleted();
@@ -831,25 +796,29 @@ document.addEventListener('DOMContentLoaded', () => {
       // 비동기 응답을 위해 true 반환
       return true;
     });
+  } else {
+    // 확장 프로그램이 아닌 경우 초기 타이머 UI 설정
+    updateTimerDisplay();
+    startButton.disabled = false;
+    pauseButton.disabled = true;
   }
   
   // Event listeners
   startButton.addEventListener('click', startTimer);
   pauseButton.addEventListener('click', pauseTimer);
   resetButton.addEventListener('click', resetTimer);
-  
-  // darkModeToggle이 있을 때만 이벤트 리스너 등록
-  if (darkModeToggle) {
-    darkModeToggle.addEventListener('change', toggleDarkMode);
-  } else {
-    console.warn('darkModeToggle을 찾을 수 없습니다');
-  }
+  darkModeToggle.addEventListener('change', toggleDarkMode);
   
   // Settings change listener
-  const pomodoroTimeInput = document.getElementById('pomodoro-time');
-  if (pomodoroTimeInput) {
-    pomodoroTimeInput.addEventListener('change', saveSettings);
-  } else {
-    console.warn('pomodoro-time 입력 요소를 찾을 수 없습니다');
-  }
+  document.getElementById('pomodoro-time').addEventListener('change', saveSettings);
 });
+
+// 타이머 완료 처리
+const handleTimerCompleted = () => {
+  // 스마일 감지 모달 표시
+  showSmileDetectionModal();
+  
+  // Reset the timer for next pomodoro
+  totalSeconds = parseInt(document.getElementById('pomodoro-time').value) * 60;
+  updateTimerDisplay();
+}; 
