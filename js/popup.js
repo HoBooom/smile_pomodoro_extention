@@ -133,8 +133,16 @@ const updateTimerDisplay = () => {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   
-  minutesElement.textContent = minutes.toString().padStart(2, '0');
-  secondsElement.textContent = seconds.toString().padStart(2, '0');
+  // 원형 프로그레스 바 업데이트
+  const progressCircle = document.getElementById('timer-progress-circle');
+  const totalPomodoroSeconds = settings.pomodoroTime * 60;
+  const progress = totalSeconds / totalPomodoroSeconds;
+  const dashOffset = circleCircumference * (1 - progress);
+  progressCircle.style.strokeDashoffset = dashOffset;
+  
+  // 텍스트 업데이트
+  const timerText = document.getElementById('timer-text');
+  timerText.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
 
 // 백그라운드 통신 함수: 타이머 시작

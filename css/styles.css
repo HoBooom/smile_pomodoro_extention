@@ -353,4 +353,31 @@ video {
   margin-top: 5px;
   color: var(--text-color);
   font-style: italic;
+}
+
+.circular-timer {
+  width: 100px;
+  height: 100px;
+  position: relative;
+}
+
+.timer-circle-bg {
+  fill: none;
+  stroke: #e6e6e6;
+}
+
+.timer-circle {
+  fill: none;
+  stroke: #2196f3;
+  stroke-dasharray: 339.292;
+  stroke-dashoffset: 339.292;
+  transition: stroke-dashoffset 0.5s ease;
+}
+
+.timer-text {
+  font-size: 18px;
+  fill: var(--text-color);
+  font-weight: bold;
+  text-anchor: middle;
+  dominant-baseline: middle;
 } 

@@ -19,7 +19,12 @@
     
     <div class="timer-container">
       <div class="timer-display">
-        <span id="minutes">25</span>:<span id="seconds">00</span>
+        <!-- 기존 숫자 타이머를 원형 프로그레스 바로 대체 -->
+        <svg class="circular-timer" viewBox="0 0 120 120">
+          <circle class="timer-circle-bg" cx="60" cy="60" r="54" stroke-width="12"></circle>
+          <circle class="timer-circle" id="timer-progress-circle" cx="60" cy="60" r="54" stroke-width="12" transform="rotate(-90 60 60)"></circle>
+          <text x="50%" y="50%" text-anchor="middle" dy=".3em" class="timer-text" id="timer-text">25:00</text>
+        </svg>
       </div>
       <div class="timer-controls">
         <button id="start-btn" class="btn">Start</button>
