@@ -4,6 +4,7 @@ const secondsElement = document.getElementById('seconds');
 const startButton = document.getElementById('start-btn');
 const pauseButton = document.getElementById('pause-btn');
 const resetButton = document.getElementById('reset-btn');
+const smileButton = document.getElementById('smile-btn');
 const darkModeToggle = document.getElementById('dark-mode-toggle');
 const smileDetectionModal = document.getElementById('smile-detection-modal');
 const video = document.getElementById('video');
@@ -11,6 +12,7 @@ const canvas = document.getElementById('canvas');
 const smileProgressCircle = document.getElementById('smile-progress-circle');
 const requestCameraButton = document.getElementById('request-camera-btn');
 const cameraStatusText = document.getElementById('camera-status');
+
 
 // Timer variables
 let timerInterval;
@@ -145,64 +147,23 @@ const updateTimerDisplay = () => {
   timerText.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
 
+// Function to update the start button text based on face detection status
+const updateStartButtonText = () => {
+  startButton.textContent = 'START';
+};
+
 // 백그라운드 통신 함수: 타이머 시작
 const startTimer = () => {
   if (timerRunning) return;
   
-  // 이미 얼굴 인식 중이면 시작하지 않음
-  if (faceDetectionActive) {
-    console.log('Face detection is already active, not starting timer');
+  // 일시정지 상태에서 재시작하는 경우
+  if (totalSeconds < parseInt(document.getElementById('pomodoro-time').value) * 60) {
+    startActualTimer();
     return;
   }
   
-  // 휴식 완료 상태 확인
-  let checkBreakCompleted = (breakCompleted) => {
-    // 휴식 완료 상태가 아니거나 타이머가 0이면 얼굴인식 과정을 건너뛰고 타이머 시작
-    if (breakCompleted || totalSeconds === 0 || totalSeconds === parseInt(document.getElementById('pomodoro-time').value) * 60) {
-      // 타이머 시작 처리
-      startActualTimer();
-      
-      // 휴식 완료 상태 리셋
-      if (isExtension) {
-        try {
-          chrome.storage.local.remove('breakCompleted');
-        } catch (error) {
-          console.error('Error removing break state:', error);
-        }
-      } else {
-        try {
-          localStorage.removeItem('breakCompleted');
-        } catch (error) {
-          console.error('Error removing from localStorage:', error);
-        }
-      }
-    } else {
-      // 타이머가 중간에 종료된 경우 얼굴인식 표시
-      showSmileDetectionModal();
-    }
-  };
-  
-  // 휴식 완료 상태 불러오기
-  if (isExtension) {
-    try {
-      chrome.storage.local.get('breakCompleted', (result) => {
-        checkBreakCompleted(result.breakCompleted);
-      });
-    } catch (error) {
-      console.error('Error getting break state:', error);
-      // 에러 발생 시 기본적으로 타이머 시작
-      startActualTimer();
-    }
-  } else {
-    try {
-      const breakCompleted = localStorage.getItem('breakCompleted') === 'true';
-      checkBreakCompleted(breakCompleted);
-    } catch (error) {
-      console.error('Error getting from localStorage:', error);
-      // 에러 발생 시 기본적으로 타이머 시작
-      startActualTimer();
-    }
-  }
+  // 새로운 타이머 시작
+  startActualTimer();
 };
 
 // 실제 타이머 시작 처리 로직 분리
@@ -213,7 +174,7 @@ const startActualTimer = () => {
         timerRunning = true;
         startButton.disabled = true;
         pauseButton.disabled = false;
-        
+        smileButton.disabled = true;
         // 타이머 UI 업데이트 위한 로컬 인터벌 시작
         startTimerUpdateInterval();
       } else {
@@ -225,7 +186,7 @@ const startActualTimer = () => {
     timerRunning = true;
     startButton.disabled = true;
     pauseButton.disabled = false;
-    
+    smileButton.disabled = true;
     // 웹 페이지 환경에서 직접 타이머 설정
     timerInterval = setInterval(() => {
       totalSeconds--;
@@ -268,33 +229,38 @@ const pauseTimer = () => {
 
 // 백그라운드 통신 함수: 타이머 리셋
 const resetTimer = () => {
+  clearInterval(timerInterval);
+  timerRunning = false;
+  
+  // 현재 DOM에서 직접 값을 가져옴 (확장 프로그램, 웹 모두 동일하게)
+  const pomodoroTime = parseInt(document.getElementById('pomodoro-time').value);
+  totalSeconds = pomodoroTime * 60;
+  
+  // 타이머 UI 업데이트
+  updateTimerDisplay();
+  
+  // 버튼 상태 업데이트
+  startButton.disabled = false;
+  pauseButton.disabled = true;
+  smileButton.disabled = false;
+  
+  // 얼굴 인식 상태 초기화
+  if (faceDetectionActive) {
+    dismissSmileDetection(video.srcObject);
+  }
+  
+  // 확장 프로그램인 경우 백그라운드에 타이머 상태 통지
   if (isExtension) {
-    chrome.runtime.sendMessage({ action: 'resetTimer' }, (response) => {
-      if (response && response.status === 'success') {
-        timerRunning = false;
-        startButton.disabled = false;
-        pauseButton.disabled = true;
-        
-        // 타이머 UI 업데이트 인터벌 정지
-        clearInterval(timerInterval);
-        
-        // 타이머 표시 업데이트
-        totalSeconds = parseInt(document.getElementById('pomodoro-time').value) * 60;
-        updateTimerDisplay();
-      } else {
-        console.error('Failed to reset timer:', response);
-      }
-    });
-  } else {
-    // 확장 프로그램이 아닌 경우 직접 타이머 리셋
-    clearInterval(timerInterval);
-    timerRunning = false;
-    startButton.disabled = false;
-    pauseButton.disabled = true;
-    
-    // 타이머 표시 업데이트
-    totalSeconds = parseInt(document.getElementById('pomodoro-time').value) * 60;
-    updateTimerDisplay();
+    try {
+      chrome.runtime.sendMessage({ 
+        action: 'resetTimer'
+      });
+      
+      // 백그라운드 상태와 동기화
+      console.log('Reset timer with pomodoro time:', pomodoroTime);
+    } catch (error) {
+      console.error('Error sending reset message:', error);
+    }
   }
 };
 
@@ -322,6 +288,7 @@ const startTimerUpdateInterval = () => {
             clearInterval(timerInterval);
             startButton.disabled = false;
             pauseButton.disabled = true;
+            smileButton.disabled = false
           }
         } else {
           console.error('Failed to get timer state:', response);
@@ -392,10 +359,12 @@ const showSmileDetectionModal = async () => {
   // 카메라 권한이 있다면 얼굴 감지 초기화
   try {
     faceDetectionActive = true;
+    updateStartButtonText();
     await initFaceDetection();
   } catch (error) {
     console.error('Failed to initialize camera:', error);
     faceDetectionActive = false;
+    updateStartButtonText();
     
     // Handle error in UI
     const modal = document.querySelector('.modal-content');
@@ -675,6 +644,7 @@ const playClearEffect = (stream) => {
 const dismissSmileDetection = (stream) => {
   // 얼굴 인식 비활성화 설정
   faceDetectionActive = false;
+  updateStartButtonText();
   
   // 기존 인터벌 제거
   if (detectionInterval) {
@@ -840,6 +810,7 @@ const requestCameraPermissionDirectly = async () => {
     
     // 권한 확인 상태 업데이트
     cameraPermissionGranted = true;
+    updateStartButtonText();
     requestCameraButton.classList.add('granted');
     requestCameraButton.textContent = "Camera Access Granted";
     requestCameraButton.textContent = "You can now use smile detection feature";
@@ -872,6 +843,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load settings
   loadSettings();
   
+  // workTime 값을 가져와서 타이머 초기화
+  const workTime = parseInt(document.getElementById('pomodoro-time').value);
+  totalSeconds = workTime * 60;
+  updateTimerDisplay();
+  
   // Check camera permission
   checkCameraPermission();
   
@@ -887,6 +863,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 버튼 상태 업데이트
         startButton.disabled = timerRunning;
         pauseButton.disabled = !timerRunning;
+        smileButton.disabled = timerRunning;
         
         // 타이머 표시 업데이트
         updateTimerDisplay();
@@ -911,6 +888,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTimerDisplay();
         startButton.disabled = timerRunning;
         pauseButton.disabled = !timerRunning;
+        smileButton.disabled = timerRunning;
       }
       else if (message.action === 'timerCompleted') {
         // 타이머 완료 처리
@@ -921,7 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 버튼 상태 업데이트
         startButton.disabled = false;
         pauseButton.disabled = true;
-        
+        smileButton.disabled = true;
         // 타이머 완료 UI 처리
         handleTimerCompleted();
       }
@@ -934,6 +912,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTimerDisplay();
     startButton.disabled = false;
     pauseButton.disabled = true;
+    smileButton.disabled = false;
   }
   
   // Event listeners
@@ -944,6 +923,16 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Settings change listener
   document.getElementById('pomodoro-time').addEventListener('change', saveSettings);
+  
+  // Update start button text based on initial face detection status
+  updateStartButtonText();
+  
+  // 버튼 컨테이너에 smile 버튼 추가
+  const buttonContainer = document.querySelector('.button-container');
+  buttonContainer.appendChild(smileButton);
+  
+  // Smile 버튼 클릭 핸들러
+  smileButton.addEventListener('click', handleSmileButtonClick);
 });
 
 // 타이머 완료 처리
@@ -978,6 +967,11 @@ const handleTimerCompleted = () => {
     faceDetectionActive = false;
   }
   
+  // 타이머 완료 상태에서는 start 버튼 비활성화
+  timerRunning = false;
+  startButton.disabled = true;  // start 버튼 비활성화
+  pauseButton.disabled = true;
+  smileButton.disabled = false;
   // 휴식 완료 상태 초기화 (새로운 포모도로 세션 시작)
   if (isExtension) {
     try {
@@ -998,7 +992,27 @@ const handleTimerCompleted = () => {
     showSmileDetectionModal();
   }, 100);
   
-  // Reset the timer for next pomodoro
-  totalSeconds = parseInt(document.getElementById('pomodoro-time').value) * 60;
+  // 타이머는 초기화하지 않고 0을 유지
+  // totalSeconds = parseInt(document.getElementById('pomodoro-time').value) * 60;
+  totalSeconds = 0;
   updateTimerDisplay();
+  
+  faceDetectionActive = false;
+  updateStartButtonText();
+};
+
+// Smile 버튼 클릭 핸들러
+const handleSmileButtonClick = () => {
+  // 타이머가 실행 중이면 타이머를 중지
+  if (timerRunning) {
+    pauseTimer();
+  }
+  
+  // 타이머가 완료된 상태(0초)일 때만 초기화
+  if (totalSeconds === 0) {
+    resetTimer();
+  }
+  
+  // 얼굴 인식 시작
+  showSmileDetectionModal();
 }; 

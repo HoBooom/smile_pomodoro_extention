@@ -165,4 +165,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     // 팝업에게 타이머 상태 변경 알림
     notifyPopup({ action: 'timerCompleted', timerState });
   }
+});
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  // 알림 클릭 시 팝업 창 열기
+  chrome.windows.create({
+    url: 'popup.html',
+    type: 'popup',
+    width: 400,
+    height: 600
+  });
 }); 

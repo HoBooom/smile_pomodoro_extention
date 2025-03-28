@@ -380,4 +380,10 @@ video {
   font-weight: bold;
   text-anchor: middle;
   dominant-baseline: middle;
-} 
+}
+
+.button-container {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
